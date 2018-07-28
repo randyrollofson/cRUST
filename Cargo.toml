@@ -1,0 +1,11 @@
+[package]
+name = "crust"
+version = "0.1.0"
+authors = ["Randy Rollofson <randyrollofson@gmail.com>"]
+
+[dependencies]
+vst = "0.0.1"
+
+[lib]
+name = "crust"
+crate-type = ["cdylib"]
