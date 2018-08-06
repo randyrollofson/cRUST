@@ -1,3 +1,9 @@
+// Copyright © 2018 Randy Rollofson
+//     ALL RIGHTS RESERVED
+//     [This program is licensed under the "MIT License"]
+//     Please see the file COPYING in the source
+//     distribution of this software for license terms.
+
 #[macro_use]
 extern crate vst;
 
@@ -14,7 +20,7 @@ struct Crust {
     volume: f32,
     wave_index: f32,
     distortion: f32,
-    overdrive: f32,
+    //overdrive: f32,
 }
 
 impl Default for Crust {
@@ -26,7 +32,7 @@ impl Default for Crust {
             volume: 0.0,
             wave_index: 0.0,
             distortion: 0.0,
-            overdrive: 0.0,
+            //overdrive: 0.0,
         }
     }
 }
@@ -54,7 +60,6 @@ fn triangle_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
 fn midi_note_num_to_freq(midi_note_number: u8) -> f64 {
     ((midi_note_number as f64 - 69.0) / 12.0).exp2() * 440.0
 }
-
 
 // Distortion formula based on
 // https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
@@ -121,7 +126,7 @@ impl Plugin for Crust {
             0 => self.wave_index,
             1 => self.volume,
             2 => self.distortion,
-            3 => self.overdrive,
+            //3 => self.overdrive,
             _ => 0.0,
         }
     }
@@ -132,7 +137,7 @@ impl Plugin for Crust {
             0 => self.wave_index = val,
             1 => self.volume = val,
             2 => self.distortion = val,
-            3 => self.overdrive = val,
+            //3 => self.overdrive = val,
             _ => (),
         }
     }
@@ -142,7 +147,7 @@ impl Plugin for Crust {
             0 => "waveform".to_string(),
             1 => "volume".to_string(),
             2 => "distortion".to_string(),
-            3 => "overdrive".to_string(),
+            //3 => "overdrive".to_string(),
             _ => "".to_string(),
         }
     }
@@ -152,7 +157,7 @@ impl Plugin for Crust {
             0 => format!("{}", ((self.wave_index) * 4.0).round()),
             1 => format!("{}%", ((self.volume) * 100.0).round()),
             2 => format!("{}", ((self.distortion) * 10.0).round()),
-            2 => format!("{}", ((self.overdrive) * 10.0).round()),
+            //3 => format!("{}", ((self.overdrive) * 10.0).round()),
             _ => "".to_string(),
         }
     }
@@ -191,7 +196,7 @@ impl Plugin for Crust {
                          wave = 0.0;
                     }
 
-                    //*output_sample = distortion(wave, self.crust);
+                    //*output_sample = distortion(wave, self.volume);
                     //*output_sample = wave;
 
                     *output_sample = overdrive(wave);
