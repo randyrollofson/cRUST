@@ -36,10 +36,10 @@ fn sawtooth_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
 }
 
 fn square_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
-    if volume * (time * midi_note_num_to_freq(midi_note) * 2.0 * PI).sin() as f32 >= 0.0 {
-        1.0
+    if (time * midi_note_num_to_freq(midi_note) * 2.0 * PI).sin() as f32 >= 0.0 {
+        volume * 1.0
     } else {
-        -1.0
+        volume * -1.0
     }
 }
 
