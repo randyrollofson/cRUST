@@ -19,8 +19,7 @@ struct Crust {
     sample_rate: f64,
     volume: f32,
     wave_index: f32,
-    distortion: f32,
-    //overdrive: f32,
+    dist: f32,
 }
 
 impl Default for Crust {
@@ -31,8 +30,7 @@ impl Default for Crust {
             sample_rate: 48000.0,
             volume: 0.0,
             wave_index: 0.0,
-            distortion: 0.0,
-            //overdrive: 0.0,
+            dist: 0.0,
         }
     }
 }
@@ -63,11 +61,12 @@ fn midi_note_num_to_freq(midi_note_number: u8) -> f64 {
 
 // Distortion formula based on
 // https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
-fn distortion(input: f32, distortion:f32) -> f32 {
+fn distortion(input: f32, dist:f32) -> f32 {
     let gain = 5.0;
     let q = input / input.abs();
     let y = q * (1.0 - (gain * (q * input)).exp());
-    let z = distortion * y + (1.0 - distortion) * input;
+    let z = dist * y + (1.0 - dist) * input;
+
     z
 }
 
@@ -86,6 +85,13 @@ fn overdrive(input: f32) -> f32 {
     }
 
     output
+}
+
+fn build_sound(input: f32, dist: f32) -> f32 {
+    let sound: f32 = distortion(input, dist);
+    let final_sound: f32 = overdrive(sound);
+
+    final_sound
 }
 
 impl Crust {
@@ -125,8 +131,7 @@ impl Plugin for Crust {
         match index {
             0 => self.wave_index,
             1 => self.volume,
-            2 => self.distortion,
-            //3 => self.overdrive,
+            2 => self.dist,
             _ => 0.0,
         }
     }
@@ -136,8 +141,7 @@ impl Plugin for Crust {
         match index {
             0 => self.wave_index = val,
             1 => self.volume = val,
-            2 => self.distortion = val,
-            //3 => self.overdrive = val,
+            2 => self.dist = val,
             _ => (),
         }
     }
@@ -147,7 +151,6 @@ impl Plugin for Crust {
             0 => "waveform".to_string(),
             1 => "volume".to_string(),
             2 => "distortion".to_string(),
-            //3 => "overdrive".to_string(),
             _ => "".to_string(),
         }
     }
@@ -156,8 +159,7 @@ impl Plugin for Crust {
         match index {
             0 => format!("{}", ((self.wave_index) * 4.0).round()),
             1 => format!("{}%", ((self.volume) * 100.0).round()),
-            2 => format!("{}", ((self.distortion) * 10.0).round()),
-            //3 => format!("{}", ((self.overdrive) * 10.0).round()),
+            2 => format!("{}%", ((self.dist) * 100.0).round()),
             _ => "".to_string(),
         }
     }
@@ -196,10 +198,7 @@ impl Plugin for Crust {
                          wave = 0.0;
                     }
 
-                    //*output_sample = distortion(wave, self.volume);
-                    //*output_sample = wave;
-
-                    *output_sample = overdrive(wave);
+                    *output_sample = build_sound(wave, self.dist);
 
                     time += sample;
                 } else {
@@ -212,3 +211,63 @@ impl Plugin for Crust {
 }
 
 plugin_main!(Crust);
+
+#[test]
+fn test_sine_wave() {
+    assert_eq!(sine_wave(0, 0.0, 0.0), 0.0);
+    assert_eq!(sine_wave(69, 1.0, 0.0005989), 1.0);
+    assert_eq!(sine_wave(69, 1.0, 0.0017045), -1.0);
+    // assert_eq!(sine_wave(60, 0.75, 2400.0), 0.5876097);
+    // assert_eq!(sine_wave(80, 0.75, 2400.0), -0.22450724);
+    // assert_eq!(sine_wave(100, 0.75, 2400.0), 0.41266116);
+    // assert_eq!(sine_wave(127, 0.75, 2400.0), 0.078091696);
+}
+
+// #[test]
+// fn test_sawtooth_wave() {
+//     assert_eq!(sawtooth_wave(0, 0.75, 2400.0), 0.31304818);
+//     assert_eq!(sawtooth_wave(20, 0.75, 2400.0), 0.15347774);
+//     assert_eq!(sawtooth_wave(60, 0.75, 2400.0), -0.10745893);
+//     assert_eq!(sawtooth_wave(80, 0.75, 2400.0), 0.0362878);
+//     assert_eq!(sawtooth_wave(100, 0.75, 2400.0), -0.30545467);
+//     assert_eq!(sawtooth_wave(127, 0.75, 2400.0), -0.0124512445);
+// }
+//
+// #[test]
+// fn test_square_wave() {
+//     assert_eq!(square_wave(0, 0.75, 2400.0), -0.3);
+//     assert_eq!(square_wave(20, 0.75, 2400.0), -0.3);
+//     assert_eq!(square_wave(60, 0.75, 2400.0), 0.3);
+//     assert_eq!(square_wave(80, 0.75, 2400.0), -0.3);
+//     assert_eq!(square_wave(100, 0.75, 2400.0), 0.3);
+//     assert_eq!(square_wave(127, 0.75, 2400.0), 0.3);
+// }
+//
+// #[test]
+// fn test_triangle_wave() {
+//     assert_eq!(triangle_wave(0, 0.75, 2400.0), -0.3);
+//     assert_eq!(triangle_wave(20, 0.75, 2400.0), -0.3);
+//     assert_eq!(triangle_wave(60, 0.75, 2400.0), 0.3);
+//     assert_eq!(triangle_wave(80, 0.75, 2400.0), -0.3);
+//     assert_eq!(triangle_wave(100, 0.75, 2400.0), 0.3);
+//     assert_eq!(triangle_wave(127, 0.75, 2400.0), 0.3);
+// }
+
+#[test]
+fn test_midi_note_num_to_freq() {
+    assert_eq!(midi_note_num_to_freq(0).round() , 8.0);
+    assert_eq!(midi_note_num_to_freq(10).round() , 15.0);
+    assert_eq!(midi_note_num_to_freq(20).round() , 26.0);
+    assert_eq!(midi_note_num_to_freq(30).round() , 46.0);
+    assert_eq!(midi_note_num_to_freq(40).round() , 82.0);
+    assert_eq!(midi_note_num_to_freq(50).round() , 147.0);
+    assert_eq!(midi_note_num_to_freq(60).round() , 262.0);
+    assert_eq!(midi_note_num_to_freq(69).round() , 440.0);
+    assert_eq!(midi_note_num_to_freq(70).round() , 466.0);
+    assert_eq!(midi_note_num_to_freq(80).round() , 831.0);
+    assert_eq!(midi_note_num_to_freq(90).round() , 1480.0);
+    assert_eq!(midi_note_num_to_freq(100).round() , 2637.0);
+    assert_eq!(midi_note_num_to_freq(110).round() , 4699.0);
+    assert_eq!(midi_note_num_to_freq(120).round() , 8372.0);
+    assert_eq!(midi_note_num_to_freq(127).round() , 12544.0);
+}
