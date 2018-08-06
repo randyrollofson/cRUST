@@ -20,6 +20,7 @@ struct Crust {
     // triangle: f32,
     //waveforms: Vec<String>,
     //waveform: f64,
+    wave_index: usize,
 }
 
 impl Default for Crust {
@@ -30,8 +31,9 @@ impl Default for Crust {
             //velocity: 0,
             sample_rate: 48000.0,
             //waveforms: vec!["sine".to_string(), "sawtooth".to_string(), "square".to_string(), "triangle".to_string()],
-            //waveform: sine_wave(),
+            //waveform: 0.5,
             volume: 0.5,
+            wave_index: 0,
         }
     }
 }
@@ -41,11 +43,11 @@ fn sine_wave(midi_note: u8, volume: f64, time: f64) -> f32 {
 }
 
 fn sawtooth_wave(midi_note: u8, volume: f64, time: f64) -> f32 {
-    (time *  (midi_note_num_to_freq(midi_note)) - ((time *  midi_note_num_to_freq(midi_note)).floor()) - 0.5) as f32
+    volume as f32 * (time *  (midi_note_num_to_freq(midi_note)) - ((time *  midi_note_num_to_freq(midi_note)).floor()) - 0.5) as f32
 }
 
 fn square_wave(midi_note: u8, volume: f64, time: f64) -> f32 {
-    if (time * midi_note_num_to_freq(midi_note) * 2.0 * PI).sin() >= 0.0 {
+    if volume as f32 * (time * midi_note_num_to_freq(midi_note) * 2.0 * PI).sin() as f32 >= 0.0 {
         1.0
     } else {
         -1.0
@@ -53,10 +55,8 @@ fn square_wave(midi_note: u8, volume: f64, time: f64) -> f32 {
 }
 
 fn triangle_wave(midi_note: u8, volume: f64, time: f64) -> f32 {
-    ((((time *  midi_note_num_to_freq(midi_note)) - ((time *  midi_note_num_to_freq(midi_note)).floor()) - 0.5).abs() - 0.25) * 4.0) as f32
+    volume as f32 * ((((time *  midi_note_num_to_freq(midi_note)) - ((time *  midi_note_num_to_freq(midi_note)).floor()) - 0.5).abs() - 0.25) * 4.0) as f32
 }
-
-// fn get_waveform(midi_note, time: f64)
 
 fn midi_note_num_to_freq(midi_note_number: u8) -> f64 {
     ((midi_note_number as f64 - 69.0) / 12.0).exp2() * 440.0
@@ -89,7 +89,7 @@ impl Plugin for Crust {
             unique_id: 736251,
             inputs: 2,
             outputs: 2,
-            parameters: 1,
+            parameters: 2,
             category: Category::Synth,
             ..Default::default()
         }
@@ -97,40 +97,38 @@ impl Plugin for Crust {
 
     fn get_parameter(&self, index: i32) -> f32 {
         match index {
-            0 => self.volume as f32,
-            // 1 => self.saw,
-            // 2 => self.square,
-            // 3 => self.triangle,
+            0 => self.wave_index as f32,
+            1 => self.volume as f32,
             _ => 0.0,
         }
     }
 
     fn set_parameter(&mut self, index: i32, val: f32) {
         match index {
-            0 => self.volume = val as f64,
-            // 1 => self.saw = val,
-            // 2 => self.square = val,
-            // 3 => self.triangle = val,
+            0 => match val.round() as usize {
+                0 => self.wave_index = 0,
+                1 => self.wave_index = 1,
+                2 => self.wave_index = 2,
+                3 => self.wave_index = 3,
+                _ => self.wave_index = 4,
+            },
+            1 => self.volume = val as f64,
             _ => (),
         }
     }
 
     fn get_parameter_name(&self, index: i32) -> String {
         match index {
-            0 => "volume".to_string(),
-            // 1 => "saw".to_string(),
-            // 2 => "square".to_string(),
-            // 3 => "triangle".to_string(),
+            0 => "waveform".to_string(),
+            1 => "volume".to_string(),
             _ => "".to_string(),
         }
     }
 
     fn get_parameter_text(&self, index: i32) -> String {
         match index {
-            0 => format!("{}%", (self.volume) * 100.0),
-            // 1 => "Saw",
-            // 2 => "Square",
-            // 3 => "Triangle",
+            0 => format!("{}", (self.wave_index + 1) * 1),
+            1 => format!("{}%", ((self.volume) * 100.0).round()),
             _ => "".to_string(),
         }
     }
@@ -145,23 +143,23 @@ impl Plugin for Crust {
     }
 
     fn process(&mut self, buffer: &mut AudioBuffer<f32>) {
-        //self.sample_rate = 48000.0;
-        //self.time = 0.0;
-        //let waveform = "sine";
         let samples = buffer.samples();
         let sample = (1.0 / self.sample_rate) as f64;
 
         for (input_buffer, output_buffer) in buffer.zip() {
             let mut time = self.time;
-            // self.sine = sine_wave(self.midi_note, time);
-            // self.saw = sawtooth_wave(self.midi_note, time);
-            // self.square = square_wave(self.midi_note, time);
-            // self.triangle = triangle_wave(self.midi_note, time);
+            let mut volume = self.volume;
 
             for (_, output_sample) in input_buffer.iter().zip(output_buffer) {
-                // self.sine = sine_wave(self.midi_note, time);
+
                 if self.midi_note != 0 {
-                    *output_sample = sine_wave(self.midi_note, self.volume, time);
+                    match self.wave_index {
+                        0 => *output_sample = sine_wave(self.midi_note, volume, time),
+                        1 => *output_sample = sawtooth_wave(self.midi_note, volume, time),
+                        2 => *output_sample = square_wave(self.midi_note, volume, time),
+                        3 => *output_sample = triangle_wave(self.midi_note, volume, time),
+                        _=> *output_sample = 0.0,
+                    }
                     time += sample;
                 } else {
                     *output_sample = 0.0;
