@@ -5,9 +5,9 @@ It uses a single oscillator and is switchable between sine, saw, square, and tri
 
 ## How To Use
 1. Clone or download the repository
-2. Run `Cargo build --release` to build plugin.
-3. Run `./osx_vst_bundler.sh cRUST target/release/libcrust.dylib` to convert to .vst.
-4. Copy .vst into your plugins folder (see your DAW documentation).
+2. Run `Cargo build --release` to build plugin
+3. Run `./osx_vst_bundler.sh cRUST target/release/libcrust.dylib` to convert to .vst
+4. Copy .vst into your plugins folder (see your DAW documentation)
 
 ## Status
 ### Done
@@ -23,6 +23,7 @@ It uses a single oscillator and is switchable between sine, saw, square, and tri
 
 ## Useful Links
 https://crates.io/crates/vst
+
 https://github.com/rust-dsp/rust-vst
 
 ## License
