@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Randy Rollofson <randyrollofson@gmail.com>"]
 
 [dependencies]
-# vst = "0.0.1"
 vst = { git = "https://github.com/rust-dsp/rust-vst" }
 
 [lib]
