@@ -18,6 +18,7 @@ struct Oscillator {
     volume: f32,
     wave_index: f32,
     dist: f32,
+    detune: f32,
 }
 
 impl Default for Oscillator {
@@ -27,6 +28,7 @@ impl Default for Oscillator {
             volume: 0.32,
             wave_index: 0.0,
             dist: 0.0,
+            detune: 0.0,
         }
     }
 }
@@ -43,44 +45,44 @@ impl Default for Crust {
         Crust {
             time: 0.0,
             midi_note: 0,
-            sample_rate: 48000.0,
+            sample_rate: 44100.0,
             oscillators: vec![Default::default(), Default::default()],
         }
     }
 }
 
-fn sine_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
-    volume as f32 * (time * midi_note_num_to_freq(midi_note) * 2.0 * PI).sin() as f32
+fn sine_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+    volume as f32 * (time * (midi_note_num_to_freq(midi_note) - detune as f64) * 2.0 * PI).sin() as f32
 }
 
-fn sawtooth_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
-    volume * (time *  (midi_note_num_to_freq(midi_note)) - ((time *  midi_note_num_to_freq(midi_note)).floor()) - 0.5) as f32
+fn sawtooth_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+    volume * (time *  (midi_note_num_to_freq(midi_note) - detune as f64) - ((time *  midi_note_num_to_freq(midi_note) - detune as f64).floor()) - 0.5) as f32
 }
 
-fn square_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
-    if (time * midi_note_num_to_freq(midi_note) * 2.0 * PI).sin() as f32 >= 0.0 {
+fn square_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+    if (time * (midi_note_num_to_freq(midi_note) - detune as f64) * 2.0 * PI).sin() as f32 >= 0.0 {
         volume * 0.4 // not using 1.0 in order to balance with other waveforms
     } else {
         volume * -0.4
     }
 }
 
-fn triangle_wave(midi_note: u8, volume: f32, time: f64) -> f32 {
-    volume * ((((time *  midi_note_num_to_freq(midi_note)) - ((time *  midi_note_num_to_freq(midi_note)).floor()) - 0.5).abs() - 0.25) * 4.0) as f32
+fn triangle_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+    volume * ((((time *  (midi_note_num_to_freq(midi_note) - detune as f64)) - ((time *  (midi_note_num_to_freq(midi_note) - detune as f64)).floor()) - 0.5).abs() - 0.25) * 4.0) as f32
 }
 
 fn midi_note_num_to_freq(midi_note_number: u8) -> f64 {
     ((midi_note_number as f64 - 69.0) / 12.0).exp2() * 440.0
 }
 
-fn generate_attack(wave: f32, attack: f32, time: f64) -> f32 {
-    let alpha = if time < attack as f64 {
-        time / attack as f64
-    } else {
-        1.0
-    };
-    alpha as f32
-}
+// fn generate_attack(wave: f32, attack: f32, time: f64) -> f32 {
+//     let alpha = if time < attack as f64 {
+//         time / attack as f64
+//     } else {
+//         1.0
+//     };
+//     alpha as f32
+// }
 
 // Distortion formula based on
 // https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
@@ -120,13 +122,11 @@ fn build_sound(input1: f32, input2: f32, dist1: f32, dist2: f32) -> f32 {
 }
 
 impl Crust {
-    // fn new(time: f64, midi_note: u8, sample_rate: f64, volume: f32, wave_index: f32, dist: f32) -> Crust {
-    //     Crust {time: time, midi_note: midi_note, sample_rate: sample_rate, volume: volume, wave_index: wave_index, dist: dist}
-    // }
     fn process_midi_data(&mut self, midi_data: [u8; 3]) {
         match midi_data[0] {
             128 => self.note_off(midi_data[1]),
             144 => self.note_on(midi_data[1]),
+            // 224 => self.pitch_bend(midi_data[1]),
             _ => (),
         }
     }
@@ -153,7 +153,7 @@ impl Plugin for Crust {
             unique_id: 736251,
             inputs: 2,
             outputs: 2,
-            parameters: 6,
+            parameters: 8,
             category: Category::Synth,
             ..Default::default()
         }
@@ -164,9 +164,11 @@ impl Plugin for Crust {
             0 => self.oscillators[0].wave_index,
             1 => self.oscillators[0].volume,
             2 => self.oscillators[0].dist,
-            3 => self.oscillators[1].wave_index,
-            4 => self.oscillators[1].volume,
-            5 => self.oscillators[1].dist,
+            3 => self.oscillators[0].detune,
+            4 => self.oscillators[1].wave_index,
+            5 => self.oscillators[1].volume,
+            6 => self.oscillators[1].dist,
+            7 => self.oscillators[1].detune,
             _ => 0.0,
         }
     }
@@ -177,9 +179,11 @@ impl Plugin for Crust {
             0 => self.oscillators[0].wave_index = val,
             1 => self.oscillators[0].volume = val,
             2 => self.oscillators[0].dist = val,
-            3 => self.oscillators[1].wave_index = val,
-            4 => self.oscillators[1].volume = val,
-            5 => self.oscillators[1].dist = val,
+            3 => self.oscillators[0].detune = val,
+            4 => self.oscillators[1].wave_index = val,
+            5 => self.oscillators[1].volume = val,
+            6 => self.oscillators[1].dist = val,
+            7 => self.oscillators[1].detune = val,
             _ => (),
         }
     }
@@ -189,9 +193,11 @@ impl Plugin for Crust {
             0 => "Osc 1 waveform".to_string(),
             1 => "Osc 1 volume".to_string(),
             2 => "Osc 1 distortion".to_string(),
-            3 => "Osc 2 waveform".to_string(),
-            4 => "Osc 2 volume".to_string(),
-            5 => "Osc 2 distortion".to_string(),
+            3 => "Osc 1 detune".to_string(),
+            4 => "Osc 2 waveform".to_string(),
+            5 => "Osc 2 volume".to_string(),
+            6 => "Osc 2 distortion".to_string(),
+            7 => "Osc 2 detune".to_string(),
             _ => "".to_string(),
         }
     }
@@ -201,9 +207,11 @@ impl Plugin for Crust {
             0 => format!("{}", ((self.oscillators[0].wave_index) * 4.0).round()),
             1 => format!("{}%", ((self.oscillators[0].volume) * 100.0).round()),
             2 => format!("{}%", ((self.oscillators[0].dist) * 100.0).round()),
-            3 => format!("{}", ((self.oscillators[1].wave_index) * 4.0).round()),
-            4 => format!("{}%", ((self.oscillators[1].volume) * 100.0).round()),
-            5 => format!("{}%", ((self.oscillators[1].dist) * 100.0).round()),
+            3 => format!("{}", (self.oscillators[0].detune) * 1.0),
+            4 => format!("{}", ((self.oscillators[1].wave_index) * 4.0).round()),
+            5 => format!("{}%", ((self.oscillators[1].volume) * 100.0).round()),
+            6 => format!("{}%", ((self.oscillators[1].dist) * 100.0).round()),
+            7 => format!("{}", (self.oscillators[1].detune) * 1.0),
             _ => "".to_string(),
         }
     }
@@ -236,25 +244,25 @@ impl Plugin for Crust {
                     let wave2;
 
                     if self.oscillators[0].wave_index >= 0.0 && self.oscillators[0].wave_index < 0.25 {
-                        wave1 = sine_wave(self.oscillators[0].midi_note, osc1_volume, time);
+                        wave1 = sine_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
                     } else if self.oscillators[0].wave_index >= 0.25 && self.oscillators[0].wave_index < 0.5 {
-                        wave1 = sawtooth_wave(self.oscillators[0].midi_note, osc1_volume, time);
+                        wave1 = sawtooth_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
                     } else if self.oscillators[0].wave_index >= 0.5 && self.oscillators[0].wave_index < 0.75 {
-                        wave1 = square_wave(self.oscillators[0].midi_note, osc1_volume, time);
+                        wave1 = square_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
                     } else if self.oscillators[0].wave_index >= 0.75 && self.oscillators[0].wave_index <= 1.0 {
-                         wave1 = triangle_wave(self.oscillators[0].midi_note, osc1_volume, time);
+                         wave1 = triangle_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
                     } else {
                          wave1 = 0.0;
                     }
 
                     if self.oscillators[1].wave_index >= 0.0 && self.oscillators[1].wave_index < 0.25 {
-                        wave2 = sine_wave(self.oscillators[1].midi_note, osc2_volume, time);
+                        wave2 = sine_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
                     } else if self.oscillators[1].wave_index >= 0.25 && self.oscillators[1].wave_index < 0.5 {
-                        wave2 = sawtooth_wave(self.oscillators[1].midi_note, osc2_volume, time);
+                        wave2 = sawtooth_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
                     } else if self.oscillators[1].wave_index >= 0.5 && self.oscillators[1].wave_index < 0.75 {
-                        wave2 = square_wave(self.oscillators[1].midi_note, osc2_volume, time);
+                        wave2 = square_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
                     } else if self.oscillators[1].wave_index >= 0.75 && self.oscillators[1].wave_index <= 1.0 {
-                         wave2 = triangle_wave(self.oscillators[1].midi_note, osc2_volume, time);
+                         wave2 = triangle_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
                     } else {
                          wave2 = 0.0;
                     }
