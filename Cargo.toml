@@ -5,6 +5,7 @@ authors = ["Randy Rollofson <randyrollofson@gmail.com>"]
 
 [dependencies]
 vst = { git = "https://github.com/rust-dsp/rust-vst" }
+rand = "0.5.5"
 
 [lib]
 name = "crust"

@@ -6,18 +6,19 @@
 
 #[macro_use]
 extern crate vst;
+extern crate rand;
 
 use vst::buffer::AudioBuffer;
 use vst::plugin::{Category, Plugin, Info};
 use vst::event::Event;
 use vst::api::Events;
 use std::f64::consts::PI;
+use rand::random;
 
 struct Oscillator {
     midi_note: u8,
     volume: f32,
     wave_index: f32,
-    dist: f32,
     detune: f32,
 }
 
@@ -27,7 +28,6 @@ impl Default for Oscillator {
             midi_note: 0,
             volume: 0.5,
             wave_index: 0.0,
-            dist: 0.0,
             detune: 0.0,
         }
     }
@@ -38,6 +38,13 @@ struct Crust {
     midi_note: u8,
     sample_rate: f64,
     oscillators: Vec<Oscillator>,
+    noise: f32,
+    distortion: f32,
+    dist_volume: f32,
+    attack: f32,
+    start_time: f64,
+    end_time: f64,
+    master_vol: f32,
 }
 
 impl Default for Crust {
@@ -47,12 +54,19 @@ impl Default for Crust {
             midi_note: 0,
             sample_rate: 44100.0,
             oscillators: vec![Default::default(), Default::default()],
+            noise: 0.0,
+            distortion: 0.0,
+            dist_volume: 0.0,
+            attack: 0.05,
+            start_time: 0.0,
+            end_time: 0.0,
+            master_vol: 1.0,
         }
     }
 }
 
 fn sine_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
-    volume as f32 * (time * midi_note_num_to_freq(midi_note, detune) * 2.0 * PI).sin() as f32
+    volume * (time as f32 * midi_note_num_to_freq(midi_note, detune) as f32 * 2.0 * PI as f32).sin()
 }
 
 fn sawtooth_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
@@ -75,14 +89,13 @@ fn midi_note_num_to_freq(midi_note_number: u8, detune: f32) -> f64 {
     (((midi_note_number as f64 - 69.0) / 12.0).exp2() * 440.0) - detune as f64
 }
 
-// fn generate_attack(wave: f32, attack: f32, time: f64) -> f32 {
-//     let alpha = if time < attack as f64 {
-//         time / attack as f64
-//     } else {
-//         1.0
-//     };
-//     alpha as f32
-// }
+fn generate_attack(attack: f32, time: f64, volume: f32) -> f32 {
+    if time < attack as f64 {
+        (time as f32 / attack) * volume
+    } else {
+        volume
+    }
+}
 
 fn lpf(input: f32) -> f32 {
     (((2.0 * PI as f32 * 500.0) / input).tan() - 1.0) / (((2.0 * PI as f32 * 500.0) / input).tan() + 1.0)
@@ -90,39 +103,43 @@ fn lpf(input: f32) -> f32 {
 
 // Distortion formula based on
 // https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
-fn distortion(input: f32, dist:f32) -> f32 {
+fn distortion(input: f32, dist: f32, dist_volume: f32) -> f32 {
     let gain = 5.0;
     let q = input / input.abs();
     let y = q * (1.0 - (gain * (q * input)).exp());
     let z = dist * y + (1.0 - dist) * input;
 
-    z
+    dist_volume * z
+    // if dist_volume == 0.0 {
+    //     input
+    // } else {
+    //     dist_volume * ((input * (1.0 - (dist * (input).exp2() / input.abs()).exp())) / input.abs())
+    // }
 }
 
 // Overdrive formula based on
 // https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
 fn overdrive(input: f32) -> f32 {
-    let output: f32;
-    if input < 0.33 {
-        output = 2.0 * input;
-    } else if input >= 0.33 && input < 0.66 {
-        output = (3.0 - (2.0 - (3.0 * input)).exp2()) / 3.0;
-    } else if input >= 0.66 && input <= 1.0 {
-        output = 1.0;
+    if input == 0.0 {
+        input
     } else {
-        output = input;
-    }
+        let output: f32;
+        if input < 0.33 {
+            output = 2.0 * input;
+        } else if input >= 0.33 && input < 0.66 {
+            output = (3.0 - (2.0 - (3.0 * input)).exp2()) / 3.0;
+        } else if input >= 0.66 && input <= 1.0 {
+            output = 1.0;
+        } else {
+            output = input;
+        }
 
-    output
+        output
+    }
 }
 
-fn build_sound(input1: f32, input2: f32, dist1: f32, dist2: f32) -> f32 {
-    let sound1: f32 = distortion(input1, dist1);
-    let sound2: f32 = distortion(input2, dist2);
-
-    let final_sound: f32 = overdrive(sound1) + overdrive(sound2);
-
-    final_sound
+fn noise(dist: f32) -> f32 {
+    dist * (((0.02 * (random::<f32>() * 2.0 - 1.0)) / 1.02) * 3.5)
 }
 
 impl Crust {
@@ -139,6 +156,7 @@ impl Crust {
         self.midi_note = note;
         self.oscillators[0].midi_note = note;
         self.oscillators[1].midi_note = note;
+        self.start_time = 0.0;
     }
 
     fn note_off(&mut self, note: u8) {
@@ -146,6 +164,7 @@ impl Crust {
             self.midi_note = 0;
             self.oscillators[0].midi_note = 0;
             self.oscillators[1].midi_note = 0;
+            self.end_time = self.start_time;
         }
     }
 }
@@ -157,7 +176,7 @@ impl Plugin for Crust {
             unique_id: 736251,
             inputs: 2,
             outputs: 2,
-            parameters: 8,
+            parameters: 9,
             category: Category::Synth,
             ..Default::default()
         }
@@ -167,12 +186,13 @@ impl Plugin for Crust {
         match index {
             0 => self.oscillators[0].wave_index,
             1 => self.oscillators[0].volume,
-            2 => self.oscillators[0].dist,
-            3 => self.oscillators[0].detune,
-            4 => self.oscillators[1].wave_index,
-            5 => self.oscillators[1].volume,
-            6 => self.oscillators[1].dist,
-            7 => self.oscillators[1].detune,
+            2 => self.oscillators[0].detune,
+            3 => self.oscillators[1].wave_index,
+            4 => self.oscillators[1].volume,
+            5 => self.oscillators[1].detune,
+            6 => self.noise,
+            7 => self.attack,
+            8 => self.master_vol,
             _ => 0.0,
         }
     }
@@ -182,12 +202,13 @@ impl Plugin for Crust {
         match index {
             0 => self.oscillators[0].wave_index = val,
             1 => self.oscillators[0].volume = val,
-            2 => self.oscillators[0].dist = val,
-            3 => self.oscillators[0].detune = val * 10.0,
-            4 => self.oscillators[1].wave_index = val,
-            5 => self.oscillators[1].volume = val,
-            6 => self.oscillators[1].dist = val,
-            7 => self.oscillators[1].detune = val * 10.0,
+            2 => self.oscillators[0].detune = val * 10.0,
+            3 => self.oscillators[1].wave_index = val,
+            4 => self.oscillators[1].volume = val,
+            5 => self.oscillators[1].detune = val * 10.0,
+            6 => self.noise = val,
+            7 => self.attack = val,
+            8 => self.master_vol = val,
             _ => (),
         }
     }
@@ -196,12 +217,13 @@ impl Plugin for Crust {
         match index {
             0 => "Osc 1 waveform".to_string(),
             1 => "Osc 1 volume".to_string(),
-            2 => "Osc 1 distortion".to_string(),
-            3 => "Osc 1 detune".to_string(),
-            4 => "Osc 2 waveform".to_string(),
-            5 => "Osc 2 volume".to_string(),
-            6 => "Osc 2 distortion".to_string(),
-            7 => "Osc 2 detune".to_string(),
+            2 => "Osc 1 detune".to_string(),
+            3 => "Osc 2 waveform".to_string(),
+            4 => "Osc 2 volume".to_string(),
+            5 => "Osc 2 detune".to_string(),
+            6 => "Noise".to_string(),
+            7 => "Attack".to_string(),
+            8 => "Master volume".to_string(),
             _ => "".to_string(),
         }
     }
@@ -210,12 +232,13 @@ impl Plugin for Crust {
         match index {
             0 => format!("{}", (self.oscillators[0].wave_index * 3.0).round()),
             1 => format!("{}%", (self.oscillators[0].volume * 100.0).round()),
-            2 => format!("{}%", (self.oscillators[0].dist * 100.0).round()),
-            3 => format!("{}", self.oscillators[0].detune),
-            4 => format!("{}", (self.oscillators[0].wave_index * 3.0).round()),
-            5 => format!("{}%", (self.oscillators[1].volume * 100.0).round()),
-            6 => format!("{}%", (self.oscillators[1].dist * 100.0).round()),
-            7 => format!("{}", self.oscillators[1].detune),
+            2 => format!("{}", self.oscillators[0].detune),
+            3 => format!("{}", (self.oscillators[0].wave_index * 3.0).round()),
+            4 => format!("{}%", (self.oscillators[1].volume * 100.0).round()),
+            5 => format!("{}", self.oscillators[1].detune),
+            6 => format!("{}%", (self.noise * 100.0).round()),
+            7 => format!("{}", self.attack),
+            8 => format!("{}%", (self.master_vol* 100.0).round()),
             _ => "".to_string(),
         }
     }
@@ -232,11 +255,14 @@ impl Plugin for Crust {
     fn process(&mut self, buffer: &mut AudioBuffer<f32>) {
         let samples = buffer.samples();
         let sample = (1.0 / self.sample_rate) as f64;
+        // let mut attack_volume = 0.0;
 
         for (input_buffer, output_buffer) in buffer.zip() {
             let mut time = self.time;
             let mut osc1_volume = self.oscillators[0].volume;
             let mut osc2_volume = self.oscillators[1].volume;
+            let mut master_vol = self.master_vol;
+
 
             for (_, output_sample) in input_buffer.iter().zip(output_buffer) {
 
@@ -246,6 +272,8 @@ impl Plugin for Crust {
 
                     let wave1;
                     let wave2;
+
+
 
                     if self.oscillators[0].wave_index >= 0.0 && self.oscillators[0].wave_index < 0.33 {
                         wave1 = sine_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
@@ -271,9 +299,21 @@ impl Plugin for Crust {
                          wave2 = 0.0;
                     }
 
-                    // *output_sample = wave1;
+                    let mut attack_volume = generate_attack(self.attack, self.start_time, self.master_vol);
+                    // master_vol = generate_attack(self.attack, time);
+                    *output_sample = attack_volume as f32 * (wave1 + wave2);
+                    // *output_sample = wave1 + wave2;
+                    // *output_sample += noise(self.noise);
+
+
+
+                    // *output_sample = distortion(wave1 + wave2, self.distortion, self.dist_volume);
+                    // *output_sample += overdrive(self.distortion);
+                    // *output_sample = wave1 + overdrive(osc1_volume);
+                    // *output_sample = distortion(wave1, self.oscillators[0].dist, time);
+                    // *output_sample = distortion(self.oscillators[0].dist, time);
                     // *output_sample = wave1 * wave2;
-                    *output_sample = wave1 + wave2;
+                    // *output_sample = wave1 + wave2;
                     //*output_sample = self.oscillators[0] + self.oscillators[1];
                     // *output_sample = build_sound(wave1, wave2, self.oscillators[0].dist, self.oscillators[1].dist);
                     //*output_sample = generate_attack(wave, self.attack, time);
@@ -284,6 +324,7 @@ impl Plugin for Crust {
                 }
             }
         }
+        self.start_time += samples as f64 * sample;
         self.time += samples as f64 * sample;
     }
 }
@@ -336,11 +377,11 @@ fn test_midi_note_num_to_freq() {
 
 #[test]
 fn test_distortion() {
-    assert_eq!(distortion(0.75, 0.0), 0.75);
-    assert_eq!(distortion(0.75, 0.32), -12.776747);
-    assert_eq!(distortion(0.75, 0.50), -20.385542);
-    assert_eq!(distortion(0.75, 0.75), -30.953312);
-    assert_eq!(distortion(0.75, 1.0), -41.521084);
+    assert_eq!(distortion(0.75, 0.0, 1.0), 0.75);
+    assert_eq!(distortion(0.75, 0.32, 1.0), -12.776747);
+    assert_eq!(distortion(0.75, 0.50, 1.0), -20.385542);
+    assert_eq!(distortion(0.75, 0.75, 1.0), -30.953312);
+    assert_eq!(distortion(0.75, 1.0, 1.0), -41.521084);
 }
 
 #[test]
