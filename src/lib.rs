@@ -119,12 +119,19 @@ fn get_amplitude(envelope: &Envelope, master_vol: f32) -> f32 {
 }
 
 fn generate_release(envelope: &Envelope, master_vol: f32) -> f32 {
-    if envelope.end_time <= envelope.release as f64 {
-        (envelope.end_time as f32 / envelope.release) * (0.0 - envelope.sustain) + envelope.sustain
-    } else {
-        0.0
+    let mut release_amplitude = 0.0;
+
+    if envelope.start_time as f32 <= envelope.attack {
+        release_amplitude = (envelope.start_time as f32 / envelope.attack) * master_vol;
     }
-    // ((time - end_time) as f32 / release) * (0.0 - volume) + volume
+    if envelope.start_time as f32 > envelope.attack && envelope.start_time as f32 <= (envelope.attack + envelope.decay) {
+        release_amplitude = ((envelope.start_time as f32 - envelope.attack) / envelope.decay) * (envelope.sustain - master_vol) + master_vol;
+    }
+    if envelope.start_time as f32 > (envelope.attack + envelope.decay) {
+        release_amplitude = envelope.sustain;
+    }
+
+    (envelope.end_time as f32 / envelope.release) * (0.0 - release_amplitude) + release_amplitude
 }
 
 fn lpf(input: f32) -> f32 {
@@ -334,7 +341,7 @@ impl Plugin for Crust {
                 } else {
                     let mut release_volume = generate_release(&self.envelope, self.master_vol);
 
-                    if release_volume < 0.0001 {
+                    if release_volume < 0.0 {
                         *output_sample = 0.0;
                     } else {
                         *output_sample = release_volume * (wave1 + wave2 + noise(self.noise));
