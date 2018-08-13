@@ -35,8 +35,8 @@ impl Default for Oscillator {
 
 struct Envelope {
     attack: f32,
-    sustain: f32,
     decay: f32,
+    sustain: f32,
     release: f32,
     start_time: f64,
     end_time: f64,
@@ -47,9 +47,9 @@ impl Default for Envelope {
     fn default() -> Envelope {
         Envelope {
             attack: 0.05,
-            sustain: 0.0,
-            decay: 0.0,
-            release: 0.7,
+            decay: 0.05,
+            sustain: 0.16,
+            release: 0.14,
             start_time: 0.0,
             end_time: 0.0,
             note_on: false,
@@ -105,17 +105,22 @@ fn midi_note_num_to_freq(midi_note_number: u8, detune: f32) -> f64 {
     (((midi_note_number as f64 - 69.0) / 12.0).exp2() * 440.0) - detune as f64
 }
 
-fn generate_attack(attack: f32, time: f64, volume: f32) -> f32 {
-    if time <= attack as f64 {
-        (time as f32 / attack) * volume
-    } else {
-        volume
-    }
+fn get_amplitude(envelope: &Envelope, master_vol: f32) -> f32 {
+    if envelope.start_time as f32 <= envelope.attack {
+        //attack phase
+       (envelope.start_time as f32 / envelope.attack) * master_vol
+   } else if envelope.start_time as f32 > envelope.attack && envelope.start_time as f32 <= (envelope.attack + envelope.decay) {
+       // decay phase
+       ((envelope.start_time as f32 - envelope.attack) / envelope.decay) * (envelope.sustain - master_vol) + master_vol
+   } else {
+       // sustain phase
+       envelope.sustain
+   }
 }
 
-fn generate_release(release: f32, end_time: f64, volume: f32) -> f32 {
-    if end_time <= release as f64 {
-        (end_time as f32 / release) * (0.0 - volume) + volume
+fn generate_release(envelope: &Envelope, master_vol: f32) -> f32 {
+    if envelope.end_time <= envelope.release as f64 {
+        (envelope.end_time as f32 / envelope.release) * (0.0 - envelope.sustain) + envelope.sustain
     } else {
         0.0
     }
@@ -198,7 +203,7 @@ impl Plugin for Crust {
             unique_id: 736251,
             inputs: 2,
             outputs: 2,
-            parameters: 10,
+            parameters: 12,
             category: Category::Synth,
             ..Default::default()
         }
@@ -214,8 +219,10 @@ impl Plugin for Crust {
             5 => self.oscillators[1].detune,
             6 => self.noise,
             7 => self.envelope.attack,
-            8 => self.envelope.release,
-            9 => self.master_vol,
+            8 => self.envelope.decay,
+            9 => self.envelope.sustain,
+            10 => self.envelope.release,
+            11 => self.master_vol,
             _ => 0.0,
         }
     }
@@ -230,8 +237,10 @@ impl Plugin for Crust {
             5 => self.oscillators[1].detune = val * 10.0,
             6 => self.noise = val,
             7 => self.envelope.attack = val * 5.0,
-            8 => self.envelope.release = val * 5.0,
-            9 => self.master_vol = val,
+            8 => self.envelope.decay = val * 5.0,
+            9 => self.envelope.sustain = val,
+            10 => self.envelope.release = val * 5.0,
+            11 => self.master_vol = val,
             _ => (),
         }
     }
@@ -246,8 +255,10 @@ impl Plugin for Crust {
             5 => "Osc 2 detune".to_string(),
             6 => "Noise".to_string(),
             7 => "Attack".to_string(),
-            8 => "Release".to_string(),
-            9 => "Master volume".to_string(),
+            8 => "Decay".to_string(),
+            9 => "Sustain".to_string(),
+            10 => "Release".to_string(),
+            11 => "Master volume".to_string(),
             _ => "".to_string(),
         }
     }
@@ -262,8 +273,10 @@ impl Plugin for Crust {
             5 => format!("{}", self.oscillators[1].detune),
             6 => format!("{}%", (self.noise * 100.0).round()),
             7 => format!("{}", self.envelope.attack),
-            8 => format!("{}", self.envelope.release),
-            9 => format!("{}%", (self.master_vol* 100.0).round()),
+            8 => format!("{}", self.envelope.decay),
+            9 => format!("{}", self.envelope.sustain),
+            10 => format!("{}", self.envelope.release),
+            11 => format!("{}%", (self.master_vol* 100.0).round()),
             _ => "".to_string(),
         }
     }
@@ -287,7 +300,6 @@ impl Plugin for Crust {
             for (_, output_sample) in input_buffer.iter().zip(output_buffer) {
                 let mut wave1;
                 let mut wave2;
-
                 let mut osc1_volume = self.oscillators[0].volume;
                 let mut osc2_volume = self.oscillators[1].volume;
 
@@ -316,12 +328,11 @@ impl Plugin for Crust {
                 }
 
                 if self.envelope.note_on == true {
-                    let mut attack_volume = generate_attack(self.envelope.attack, self.envelope.start_time, self.master_vol);
-                    *output_sample = attack_volume as f32 * (wave1 + wave2 + noise(self.noise));
+                    *output_sample = get_amplitude(&self.envelope, self.master_vol) as f32 * (wave1 + wave2 + noise(self.noise));
 
                     self.envelope.start_time += sample;
                 } else {
-                    let mut release_volume = generate_release(self.envelope.release, self.envelope.end_time, self.master_vol);
+                    let mut release_volume = generate_release(&self.envelope, self.master_vol);
 
                     if release_volume < 0.0001 {
                         *output_sample = 0.0;
