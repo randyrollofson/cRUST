@@ -1,7 +1,8 @@
 # cRUST
 
-cRUST is a work in progress vst software synthesizer written in Rust using the vst crate.
-It uses a single oscillator and is switchable between sine, saw, square, and triangle waveforms.
+cRUST vst software synthesizer plugin written in Rust using the vst crate.
+It has 2 oscillators, each of which are switchable between sine, saw, square, and triangle waveforms.
+cRUST also has a noise generator as well as an ADSR envelope filter. cRUST is a work in progress.
 
 ## How To Use
 1. Clone or download the repository
@@ -12,14 +13,15 @@ It uses a single oscillator and is switchable between sine, saw, square, and tri
 ## Status
 ### Done
 * Switchable waveforms: sine, saw, square, triangle
-* Added distortion DSP
-* Added overdrive DSP
+* 2 independent oscillators
+* Add noise generator
+* Add ADSR envelope filter
 
 ### To Do
+* Add polyphony
 * Add velocity sensitivity
 * Add cutoff/resonance
-* Add envelope filter
-* Add polyphony
+* Add lfo
 
 ## Useful Links
 https://crates.io/crates/vst
