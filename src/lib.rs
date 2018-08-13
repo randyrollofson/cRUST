@@ -33,17 +33,37 @@ impl Default for Oscillator {
     }
 }
 
+struct Envelope {
+    attack: f32,
+    sustain: f32,
+    decay: f32,
+    release: f32,
+    start_time: f64,
+    end_time: f64,
+    note_on: bool,
+}
+
+impl Default for Envelope {
+    fn default() -> Envelope {
+        Envelope {
+            attack: 0.05,
+            sustain: 0.0,
+            decay: 0.0,
+            release: 0.7,
+            start_time: 0.0,
+            end_time: 0.0,
+            note_on: false,
+        }
+    }
+}
+
 struct Crust {
     time: f64,
     midi_note: u8,
     sample_rate: f64,
     oscillators: Vec<Oscillator>,
     noise: f32,
-    attack: f32,
-    release: f32,
-    start_time: f64,
-    end_time: f64,
-    note_on: bool,
+    envelope: Envelope,
     master_vol: f32,
 }
 
@@ -55,11 +75,7 @@ impl Default for Crust {
             sample_rate: 44100.0,
             oscillators: vec![Default::default(), Default::default()],
             noise: 0.0,
-            attack: 0.05,
-            release: 0.7,
-            start_time: 0.0,
-            end_time: 0.0,
-            note_on: false,
+            envelope: Envelope::default(),
             master_vol: 1.0,
         }
     }
@@ -165,13 +181,13 @@ impl Crust {
         self.midi_note = note;
         self.oscillators[0].midi_note = note;
         self.oscillators[1].midi_note = note;
-        self.note_on = true;
-        self.start_time = 0.0;
+        self.envelope.note_on = true;
+        self.envelope.start_time = 0.0;
     }
 
     fn note_off(&mut self) {
-        self.note_on = false;
-        self.end_time = 0.0;
+        self.envelope.note_on = false;
+        self.envelope.end_time = 0.0;
     }
 }
 
@@ -197,8 +213,8 @@ impl Plugin for Crust {
             4 => self.oscillators[1].volume,
             5 => self.oscillators[1].detune,
             6 => self.noise,
-            7 => self.attack,
-            8 => self.release,
+            7 => self.envelope.attack,
+            8 => self.envelope.release,
             9 => self.master_vol,
             _ => 0.0,
         }
@@ -213,8 +229,8 @@ impl Plugin for Crust {
             4 => self.oscillators[1].volume = val,
             5 => self.oscillators[1].detune = val * 10.0,
             6 => self.noise = val,
-            7 => self.attack = val * 5.0,
-            8 => self.release = val * 5.0,
+            7 => self.envelope.attack = val * 5.0,
+            8 => self.envelope.release = val * 5.0,
             9 => self.master_vol = val,
             _ => (),
         }
@@ -245,8 +261,8 @@ impl Plugin for Crust {
             4 => format!("{}%", (self.oscillators[1].volume * 100.0).round()),
             5 => format!("{}", self.oscillators[1].detune),
             6 => format!("{}%", (self.noise * 100.0).round()),
-            7 => format!("{}", self.attack),
-            8 => format!("{}", self.release),
+            7 => format!("{}", self.envelope.attack),
+            8 => format!("{}", self.envelope.release),
             9 => format!("{}%", (self.master_vol* 100.0).round()),
             _ => "".to_string(),
         }
@@ -299,26 +315,26 @@ impl Plugin for Crust {
                      wave2 = 0.0;
                 }
 
-                if self.note_on == true {
-                    let mut attack_volume = generate_attack(self.attack, self.start_time, self.master_vol);
-                    *output_sample = attack_volume as f32 * (wave1 + wave2) + noise(self.noise);
+                if self.envelope.note_on == true {
+                    let mut attack_volume = generate_attack(self.envelope.attack, self.envelope.start_time, self.master_vol);
+                    *output_sample = attack_volume as f32 * (wave1 + wave2 + noise(self.noise));
 
-                    self.start_time += sample;
+                    self.envelope.start_time += sample;
                 } else {
-                    let mut release_volume = generate_release(self.release, self.end_time, self.master_vol);
+                    let mut release_volume = generate_release(self.envelope.release, self.envelope.end_time, self.master_vol);
 
                     if release_volume < 0.0001 {
                         *output_sample = 0.0;
                     } else {
-                        *output_sample = release_volume * (wave1 + wave2) + noise(self.noise);
+                        *output_sample = release_volume * (wave1 + wave2 + noise(self.noise));
                     }
 
-                    self.end_time += sample;
+                    self.envelope.end_time += sample;
                 }
                 time += sample;
             }
         }
-        
+
         self.time += samples as f64 * sample;
     }
 }
