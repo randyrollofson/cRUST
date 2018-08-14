@@ -15,17 +15,21 @@ use vst::api::Events;
 use std::f64::consts::PI;
 use rand::random;
 
+/// Stores data that is unique to each Oscillator.
 struct Oscillator {
-    midi_note: u8,
+    // midi_note: u8,
+    waves: Vec<f32>,
     volume: f32,
     wave_index: f32,
     detune: f32,
 }
 
+/// Default Oscillator values.
 impl Default for Oscillator {
     fn default() -> Oscillator {
         Oscillator {
-            midi_note: 0,
+            // midi_note: 0,
+            waves: Vec::new(),
             volume: 0.5,
             wave_index: 0.0,
             detune: 0.0,
@@ -33,16 +37,33 @@ impl Default for Oscillator {
     }
 }
 
+// #[derive(PartialEq)]
+// struct Note {
+//     midi_note_number: u8,
+//     is_active: bool,
+// }
+//
+// impl Default for Note {
+//     fn default() -> Note {
+//         Note {
+//             midi_note_number: 0,
+//             is_active: false,
+//         }
+//     }
+// }
+
+/// Stores data that is relevent to the ADSR Envelope filter.
 struct Envelope {
     attack: f32,
     decay: f32,
     sustain: f32,
     release: f32,
-    start_time: f64,
+    duration: f64,
     end_time: f64,
     note_on: bool,
 }
 
+/// Default Envelope filter values.
 impl Default for Envelope {
     fn default() -> Envelope {
         Envelope {
@@ -50,23 +71,26 @@ impl Default for Envelope {
             decay: 0.05,
             sustain: 0.16,
             release: 0.14,
-            start_time: 0.0,
+            duration: 0.0,
             end_time: 0.0,
             note_on: false,
         }
     }
 }
 
+/// Stores values for the synth as a whole.
 struct Crust {
     time: f64,
     midi_note: u8,
     sample_rate: f64,
     oscillators: Vec<Oscillator>,
+    notes: Vec<u8>,
     noise: f32,
     envelope: Envelope,
     master_vol: f32,
 }
 
+/// Default synth values.
 impl Default for Crust {
     fn default() -> Crust {
         Crust {
@@ -74,6 +98,7 @@ impl Default for Crust {
             midi_note: 0,
             sample_rate: 44100.0,
             oscillators: vec![Default::default(), Default::default()],
+            notes: Vec::new(),
             noise: 0.0,
             envelope: Envelope::default(),
             master_vol: 1.0,
@@ -81,15 +106,18 @@ impl Default for Crust {
     }
 }
 
-fn sine_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+/// Creates a sine wave based on midi note, oscillator volume, time, and detune value.
+fn create_sine_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
     volume * (time as f32 * midi_note_num_to_freq(midi_note, detune) as f32 * 2.0 * PI as f32).sin()
 }
 
-fn sawtooth_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+/// Creates a sawtooth wave based on midi note, oscillator volume, time, and detune value.
+fn create_sawtooth_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
     volume * (time *  midi_note_num_to_freq(midi_note, detune) - ((time *  midi_note_num_to_freq(midi_note, detune)).floor()) - 0.5) as f32
 }
 
-fn square_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+/// Creates a square wave based on midi note, oscillator volume, time, and detune value.
+fn create_square_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
     if (time * midi_note_num_to_freq(midi_note, detune) * 2.0 * PI).sin() as f32 >= 0.0 {
         volume * 0.4 // not using 1.0 in order to balance with other waveforms
     } else {
@@ -97,65 +125,73 @@ fn square_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
     }
 }
 
-fn triangle_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
+/// Creates a triangle wave based on midi note, oscillator volume, time, and detune value.
+fn create_triangle_wave(midi_note: u8, volume: f32, time: f64, detune: f32) -> f32 {
     volume * ((((time *  midi_note_num_to_freq(midi_note, detune)) - ((time *  midi_note_num_to_freq(midi_note, detune)).floor()) - 0.5).abs() - 0.25) * 4.0) as f32
 }
 
+/// Midi note numbers are converted to a frequency value then adjusted for detuning, if any.
 fn midi_note_num_to_freq(midi_note_number: u8, detune: f32) -> f64 {
     (((midi_note_number as f64 - 69.0) / 12.0).exp2() * 440.0) - detune as f64
 }
 
+/// Determines which phase of the ADS portion of the Envelope filter we are in
+/// and returns the amplitude at that point in time.
+/// This method is called when a key is pressed.
 fn get_amplitude(envelope: &Envelope, master_vol: f32) -> f32 {
-    if envelope.start_time as f32 <= envelope.attack {
+    if envelope.duration as f32 <= envelope.attack {
         //attack phase
-       (envelope.start_time as f32 / envelope.attack) * master_vol
-   } else if envelope.start_time as f32 > envelope.attack && envelope.start_time as f32 <= (envelope.attack + envelope.decay) {
+       (envelope.duration as f32 / envelope.attack) * master_vol
+   } else if envelope.duration as f32 > envelope.attack && envelope.duration as f32 <= (envelope.attack + envelope.decay) {
        // decay phase
-       ((envelope.start_time as f32 - envelope.attack) / envelope.decay) * (envelope.sustain - master_vol) + master_vol
+       ((envelope.duration as f32 - envelope.attack) / envelope.decay) * (envelope.sustain - master_vol) + master_vol
    } else {
        // sustain phase
        envelope.sustain
    }
 }
 
+/// Determines the amplitude during the Release phase of the Envelope filter.
+/// This method is called when a key is lifted.
 fn generate_release(envelope: &Envelope, master_vol: f32) -> f32 {
     let mut release_amplitude = 0.0;
 
-    if envelope.start_time as f32 <= envelope.attack {
-        release_amplitude = (envelope.start_time as f32 / envelope.attack) * master_vol;
+    if envelope.duration as f32 <= envelope.attack {
+        release_amplitude = (envelope.duration as f32 / envelope.attack) * master_vol;
     }
-    if envelope.start_time as f32 > envelope.attack && envelope.start_time as f32 <= (envelope.attack + envelope.decay) {
-        release_amplitude = ((envelope.start_time as f32 - envelope.attack) / envelope.decay) * (envelope.sustain - master_vol) + master_vol;
+    if envelope.duration as f32 > envelope.attack && envelope.duration as f32 <= (envelope.attack + envelope.decay) {
+        release_amplitude = ((envelope.duration as f32 - envelope.attack) / envelope.decay) * (envelope.sustain - master_vol) + master_vol;
     }
-    if envelope.start_time as f32 > (envelope.attack + envelope.decay) {
+    if envelope.duration as f32 > (envelope.attack + envelope.decay) {
         release_amplitude = envelope.sustain;
     }
 
     (envelope.end_time as f32 / envelope.release) * (0.0 - release_amplitude) + release_amplitude
 }
 
-fn lpf(input: f32) -> f32 {
-    (((2.0 * PI as f32 * 500.0) / input).tan() - 1.0) / (((2.0 * PI as f32 * 500.0) / input).tan() + 1.0)
-}
-
-// Distortion formula based on
-// https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
+/// Basic distortion formula based on input signal and desired distortion level.
+/// Formula is based on
+/// https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
 fn distortion(input: f32, dist: f32, dist_volume: f32) -> f32 {
+    // if dist_volume == 0.0 {
+    //     input
+    // } else {
+    //     dist_volume * ((input * (1.0 - (dist * (input).exp2() / input.abs()).exp())) / input.abs())
+    // }
+
     let gain = 5.0;
     let q = input / input.abs();
     let y = q * (1.0 - (gain * (q * input)).exp());
     let z = dist * y + (1.0 - dist) * input;
 
     dist_volume * z
-    // if dist_volume == 0.0 {
-    //     input
-    // } else {
-    //     dist_volume * ((input * (1.0 - (dist * (input).exp2() / input.abs()).exp())) / input.abs())
-    // }
 }
 
-// Overdrive formula based on
-// https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
+/// Basic overdrive formula which is determined by the input signal.
+/// The overdrive has 3 phases which spits the input signal in thirds
+/// and generates a different output for each phase.
+/// Formula is based on
+/// https://ccrma.stanford.edu/~orchi/Documents/DAFx.pdf
 fn overdrive(input: f32) -> f32 {
     if input == 0.0 {
         input
@@ -175,34 +211,51 @@ fn overdrive(input: f32) -> f32 {
     }
 }
 
+/// Creates brownian noise based on random f32 values.
 fn noise(dist: f32) -> f32 {
     dist * (((0.02 * (random::<f32>() * 2.0 - 1.0)) / 1.02) * 3.5)
 }
 
+/// Handles incomming midi message data and determines whether to start or
+/// stop a particular note.
+/// https://www.midi.org/specifications-old/item/table-1-summary-of-midi-message
 impl Crust {
     fn process_midi_data(&mut self, midi_data: [u8; 3]) {
         match midi_data[0] {
-            128 => self.note_off(),
+            128 => self.note_off(midi_data[1]),
             144 => self.note_on(midi_data[1]),
             // 224 => self.pitch_bend(midi_data[1]),
             _ => (),
         }
     }
 
+    /// Assigns each oscillator a midi note number.
+    /// Starts the duration timer for the envelope filter.
     fn note_on(&mut self, note: u8) {
-        self.midi_note = note;
-        self.oscillators[0].midi_note = note;
-        self.oscillators[1].midi_note = note;
+        // self.notes.push(Note {midi_note_number: note, is_active: true});
+        self.notes.push(note);
+        // self.midi_note = note;
+        // self.oscillators[0].midi_note = note;
+        // self.oscillators[1].midi_note = note;
         self.envelope.note_on = true;
-        self.envelope.start_time = 0.0;
+        self.envelope.duration = 0.0;
     }
 
-    fn note_off(&mut self) {
+    /// Stops the duration timer for the envelope filter.
+    fn note_off(&mut self, note: u8) {
+        self.notes.retain(|&x| x != note);
+        // for i in 0..self.notes.len() {
+        //     if self.notes[i].midi_note_number == note {
+        //         self.notes.remove(i);
+        //         self.notes[i].is_active = false;
+        //     }
+        // }
         self.envelope.note_on = false;
         self.envelope.end_time = 0.0;
     }
 }
 
+/// Implements all methods required for the Plugin trait of the vst crate.
 impl Plugin for Crust {
     fn get_info(&self) -> Info {
         Info {
@@ -216,6 +269,7 @@ impl Plugin for Crust {
         }
     }
 
+    /// Gets the values that will be used in the plugin UI in the DAW.
     fn get_parameter(&self, index: i32) -> f32 {
         match index {
             0 => self.oscillators[0].wave_index,
@@ -234,6 +288,7 @@ impl Plugin for Crust {
         }
     }
 
+    /// Sets each value based on slider values in UI in the DAW.
     fn set_parameter(&mut self, index: i32, val: f32) {
         match index {
             0 => self.oscillators[0].wave_index = val,
@@ -252,6 +307,7 @@ impl Plugin for Crust {
         }
     }
 
+    /// The text that will appear under each slider in the UI.
     fn get_parameter_name(&self, index: i32) -> String {
         match index {
             0 => "Osc 1 waveform".to_string(),
@@ -270,6 +326,7 @@ impl Plugin for Crust {
         }
     }
 
+    /// Determines how to display the data based on the slider position in the UI.
     fn get_parameter_text(&self, index: i32) -> String {
         match index {
             0 => format!("{}", (self.oscillators[0].wave_index * 3.0).round()),
@@ -288,6 +345,7 @@ impl Plugin for Crust {
         }
     }
 
+    /// The starting place for handling incoming midi events.
     fn process_events(&mut self, events: &Events) {
         for event in events.events() {
             match event {
@@ -297,6 +355,9 @@ impl Plugin for Crust {
         }
     }
 
+    /// Main source for outputting audio.
+    /// Loops through the buffer and outputs an f32 value between 0 and 1
+    /// for each sample.
     fn process(&mut self, buffer: &mut AudioBuffer<f32>) {
         let samples = buffer.samples();
         let sample = (1.0 / self.sample_rate) as f64;
@@ -304,53 +365,62 @@ impl Plugin for Crust {
         for (input_buffer, output_buffer) in buffer.zip() {
             let mut time = self.time;
 
+
             for (_, output_sample) in input_buffer.iter().zip(output_buffer) {
-                let mut wave1;
-                let mut wave2;
+                let mut wave1 = 0.0;
+                let mut wave2 = 0.0;
+                let mut sound = 0.0;
                 let mut osc1_volume = self.oscillators[0].volume;
                 let mut osc2_volume = self.oscillators[1].volume;
 
-                if self.oscillators[0].wave_index >= 0.0 && self.oscillators[0].wave_index < 0.33 {
-                    wave1 = sine_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
-                } else if self.oscillators[0].wave_index >= 0.33 && self.oscillators[0].wave_index < 0.66 {
-                    wave1 = sawtooth_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
-                } else if self.oscillators[0].wave_index >= 0.66 && self.oscillators[0].wave_index < 1.0 {
-                    wave1 = square_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
-                } else if self.oscillators[0].wave_index >= 1.0 {
-                     wave1 = triangle_wave(self.oscillators[0].midi_note, osc1_volume, time, self.oscillators[0].detune);
-                } else {
-                     wave1 = 0.0;
-                }
 
-                if self.oscillators[1].wave_index >= 0.0 && self.oscillators[1].wave_index < 0.33 {
-                    wave2 = sine_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
-                } else if self.oscillators[1].wave_index >= 0.33 && self.oscillators[1].wave_index < 0.66 {
-                    wave2 = sawtooth_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
-                } else if self.oscillators[1].wave_index >= 0.66 && self.oscillators[1].wave_index < 1.0 {
-                    wave2 = square_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
-                } else if self.oscillators[1].wave_index >= 1.0 {
-                     wave2 = triangle_wave(self.oscillators[1].midi_note, osc2_volume, time, self.oscillators[1].detune);
-                } else {
-                     wave2 = 0.0;
-                }
+                for i in 0..self.notes.len() {
+                    if self.oscillators[0].wave_index >= 0.0 && self.oscillators[0].wave_index < 0.33 {
+                        wave1 += create_sine_wave(self.notes[i], osc1_volume, time, self.oscillators[0].detune);
+                    } else if self.oscillators[0].wave_index >= 0.33 && self.oscillators[0].wave_index < 0.66 {
+                        wave1 += create_sawtooth_wave(self.notes[i], osc1_volume, time, self.oscillators[0].detune);
+                    } else if self.oscillators[0].wave_index >= 0.66 && self.oscillators[0].wave_index < 1.0 {
+                        wave1 += create_square_wave(self.notes[i], osc1_volume, time, self.oscillators[0].detune);
+                    } else if self.oscillators[0].wave_index >= 1.0 {
+                         wave1 += create_triangle_wave(self.notes[i], osc1_volume, time, self.oscillators[0].detune);
+                    } else {
+                         wave1 = 0.0;
+                    }
+
+                    if self.oscillators[1].wave_index >= 0.0 && self.oscillators[1].wave_index < 0.33 {
+                        wave2 += create_sine_wave(self.notes[i], osc2_volume, time, self.oscillators[1].detune);
+                    } else if self.oscillators[1].wave_index >= 0.33 && self.oscillators[1].wave_index < 0.66 {
+                        wave2 += create_sawtooth_wave(self.notes[i], osc2_volume, time, self.oscillators[1].detune);
+                    } else if self.oscillators[1].wave_index >= 0.66 && self.oscillators[1].wave_index < 1.0 {
+                        wave2 += create_square_wave(self.notes[i], osc2_volume, time, self.oscillators[1].detune);
+                    } else if self.oscillators[1].wave_index >= 1.0 {
+                         wave2 += create_triangle_wave(self.notes[i], osc2_volume, time, self.oscillators[1].detune);
+                    } else {
+                         wave2 = 0.0;
+                    }
+                } // end of notes loop
 
                 if self.envelope.note_on == true {
                     *output_sample = get_amplitude(&self.envelope, self.master_vol) as f32 * (wave1 + wave2 + noise(self.noise));
+                    // sound += get_amplitude(&self.envelope, self.master_vol) as f32 * (wave1 + wave2 + noise(self.noise));
 
-                    self.envelope.start_time += sample;
+                    self.envelope.duration += sample;
                 } else {
                     let mut release_volume = generate_release(&self.envelope, self.master_vol);
 
                     if release_volume < 0.0 {
                         *output_sample = 0.0;
+                        // sound = 0.0;
                     } else {
                         *output_sample = release_volume * (wave1 + wave2 + noise(self.noise));
+                        // sound += release_volume * (wave1 + wave2 + noise(self.noise));
                     }
 
                     self.envelope.end_time += sample;
                 }
+
                 time += sample;
-            }
+            } // end of sample loop
         }
 
         self.time += samples as f64 * sample;
@@ -361,34 +431,34 @@ plugin_main!(Crust);
 
 #[test]
 fn test_sine_wave() {
-    assert_eq!(sine_wave(0, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(sine_wave(69, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(sine_wave(69, 1.0, 0.0005682, 0.0), 1.0);
-    assert_eq!(sine_wave(69, 1.0, 0.0017045, 0.0), -1.0);
+    assert_eq!(create_sine_wave(0, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_sine_wave(69, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_sine_wave(69, 1.0, 0.0005682, 0.0), 1.0);
+    assert_eq!(create_sine_wave(69, 1.0, 0.0017045, 0.0), -1.0);
 }
 
 #[test]
 fn test_sawtooth_wave() {
-    assert_eq!(sawtooth_wave(0, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(sawtooth_wave(69, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(sawtooth_wave(69, 1.0, 0.00454545454, 0.0), 0.5);
-    assert_eq!(sawtooth_wave(69, 1.0, 0.00454545455, 0.0), -0.5);
+    assert_eq!(create_sawtooth_wave(0, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_sawtooth_wave(69, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_sawtooth_wave(69, 1.0, 0.00454545454, 0.0), 0.5);
+    assert_eq!(create_sawtooth_wave(69, 1.0, 0.00454545455, 0.0), -0.5);
 }
 
 #[test]
 fn test_square_wave() {
-    assert_eq!(square_wave(0, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(square_wave(69, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(square_wave(69, 1.0, 0.0005682, 0.0), 0.4);
-    assert_eq!(square_wave(69, 1.0, 0.0017045, 0.0), -0.4);
+    assert_eq!(create_square_wave(0, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_square_wave(69, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_square_wave(69, 1.0, 0.0005682, 0.0), 0.4);
+    assert_eq!(create_square_wave(69, 1.0, 0.0017045, 0.0), -0.4);
 }
 
 #[test]
 fn test_triangle_wave() {
-    assert_eq!(triangle_wave(0, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(triangle_wave(69, 0.0, 0.0, 0.0), 0.0);
-    assert_eq!(sine_wave(69, 1.0, 0.0005682, 0.0), 1.0);
-    assert_eq!(sine_wave(69, 1.0, 0.0017045, 0.0), -1.0);
+    assert_eq!(create_triangle_wave(0, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_triangle_wave(69, 0.0, 0.0, 0.0), 0.0);
+    assert_eq!(create_sine_wave(69, 1.0, 0.0005682, 0.0), 1.0);
+    assert_eq!(create_sine_wave(69, 1.0, 0.0017045, 0.0), -1.0);
 }
 
 #[test]
