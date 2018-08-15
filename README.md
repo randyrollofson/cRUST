@@ -1,13 +1,14 @@
 # cRUST
 
-cRUST vst software synthesizer plugin written in Rust using the vst crate.
+cRUST is a vst software synthesizer plugin written in Rust using the vst crate.
 It has 2 oscillators, each of which are switchable between sine, saw, square, and triangle waveforms.
-cRUST also has a noise generator as well as an ADSR envelope filter. cRUST is a work in progress.
+cRUST also has a noise generator as well as an ADSR envelope filter. cRUST is a work in progress and
+has only been fully tested on macOS High Sierra using Cubase and Ableton DAWs.
 
 ## How To Use
 1. Clone or download the repository
 2. Run `Cargo build --release` to build plugin
-3. Run `./osx_vst_bundler.sh cRUST target/release/libcrust.dylib` to convert to .vst
+3. On MacOS run `./osx_vst_bundler.sh cRUST target/release/libcrust.dylib` to create a vst bundle
 4. Copy .vst into your plugins folder (see your DAW documentation)
 
 ## Status

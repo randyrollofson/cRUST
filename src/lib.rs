@@ -3,6 +3,12 @@
 //     [This program is licensed under the "MIT License"]
 //     Please see the file COPYING in the source
 //     distribution of this software for license terms.
+//
+//! cRUST is a vst software synthesizer plugin written in Rust using the vst crate.
+//! It has 2 oscillators, each of which are switchable between sine, saw, square,
+//! and triangle waveforms. cRUST also has a noise generator as well as an ADSR
+//! envelope filter. cRUST is a work in progress and has only been fully
+//! tested on macOS High Sierra using Cubase and Ableton DAWs.
 
 #[macro_use]
 extern crate vst;
@@ -212,7 +218,7 @@ fn noise(dist: f32) -> f32 {
 
 /// Handles incomming midi message data and determines whether to start or
 /// stop a particular note.
-/// https://www.midi.org/specifications-old/item/table-1-summary-of-midi-message
+/// See https://www.midi.org/specifications-old/item/table-1-summary-of-midi-message
 impl Crust {
     fn process_midi_data(&mut self, midi_data: [u8; 3]) {
         match midi_data[0] {
@@ -331,7 +337,8 @@ impl Plugin for Crust {
         }
     }
 
-    /// The starting place for handling incoming midi events.
+    /// Entery point of the program.
+    /// Handles incoming midi events.
     fn process_events(&mut self, events: &Events) {
         for event in events.events() {
             match event {
@@ -341,7 +348,7 @@ impl Plugin for Crust {
         }
     }
 
-    /// Main source for outputting audio.
+    /// Method for outputting audio.
     /// Loops through the buffer and outputs an f32 value between 0 and 1
     /// for each sample.
     fn process(&mut self, buffer: &mut AudioBuffer<f32>) {
@@ -384,9 +391,9 @@ impl Plugin for Crust {
                     } else {
                          wave2 = 0.0;
                     }
-                } // end of notes loop
+                } // end of notes vec loop
 
-                // Apply envelope.
+                // Apply envelope filter.
                 if self.envelope.note_on == true {
                     *output_sample = get_amplitude(&self.envelope, self.master_vol) as f32 * (wave1 + wave2 + noise(self.noise));
 
