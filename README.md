@@ -13,15 +13,17 @@ cRUST also has a noise generator as well as an ADSR envelope filter. cRUST is a 
 ## Status
 ### Done
 * Switchable waveforms: sine, saw, square, triangle
-* 2 independent oscillators
+* 2 oscillators
 * Add noise generator
 * Add ADSR envelope filter
+* Add polyphony
 
 ### To Do
-* Add polyphony
+* Fix envelope release
 * Add velocity sensitivity
 * Add cutoff/resonance
 * Add lfo
+* Get distortion and overdrive to work properly
 
 ## Useful Links
 https://crates.io/crates/vst

@@ -17,8 +17,6 @@ use rand::random;
 
 /// Stores data that is unique to each Oscillator.
 struct Oscillator {
-    // midi_note: u8,
-    waves: Vec<f32>,
     volume: f32,
     wave_index: f32,
     detune: f32,
@@ -28,8 +26,6 @@ struct Oscillator {
 impl Default for Oscillator {
     fn default() -> Oscillator {
         Oscillator {
-            // midi_note: 0,
-            waves: Vec::new(),
             volume: 0.5,
             wave_index: 0.0,
             detune: 0.0,
@@ -39,14 +35,14 @@ impl Default for Oscillator {
 
 // #[derive(PartialEq)]
 // struct Note {
-//     midi_note_number: u8,
+//     midi_note: u8,
 //     is_active: bool,
 // }
 //
 // impl Default for Note {
 //     fn default() -> Note {
 //         Note {
-//             midi_note_number: 0,
+//             midi_note: 0,
 //             is_active: false,
 //         }
 //     }
@@ -81,7 +77,6 @@ impl Default for Envelope {
 /// Stores values for the synth as a whole.
 struct Crust {
     time: f64,
-    midi_note: u8,
     sample_rate: f64,
     oscillators: Vec<Oscillator>,
     notes: Vec<u8>,
@@ -95,7 +90,6 @@ impl Default for Crust {
     fn default() -> Crust {
         Crust {
             time: 0.0,
-            midi_note: 0,
             sample_rate: 44100.0,
             oscillators: vec![Default::default(), Default::default()],
             notes: Vec::new(),
@@ -231,25 +225,17 @@ impl Crust {
 
     /// Assigns each oscillator a midi note number.
     /// Starts the duration timer for the envelope filter.
+    /// Adds note to vector of active notes.
     fn note_on(&mut self, note: u8) {
-        // self.notes.push(Note {midi_note_number: note, is_active: true});
         self.notes.push(note);
-        // self.midi_note = note;
-        // self.oscillators[0].midi_note = note;
-        // self.oscillators[1].midi_note = note;
         self.envelope.note_on = true;
         self.envelope.duration = 0.0;
     }
 
     /// Stops the duration timer for the envelope filter.
+    /// Reomves note from active note vector.
     fn note_off(&mut self, note: u8) {
         self.notes.retain(|&x| x != note);
-        // for i in 0..self.notes.len() {
-        //     if self.notes[i].midi_note_number == note {
-        //         self.notes.remove(i);
-        //         self.notes[i].is_active = false;
-        //     }
-        // }
         self.envelope.note_on = false;
         self.envelope.end_time = 0.0;
     }
@@ -365,16 +351,15 @@ impl Plugin for Crust {
         for (input_buffer, output_buffer) in buffer.zip() {
             let mut time = self.time;
 
-
             for (_, output_sample) in input_buffer.iter().zip(output_buffer) {
                 let mut wave1 = 0.0;
                 let mut wave2 = 0.0;
-                let mut sound = 0.0;
                 let mut osc1_volume = self.oscillators[0].volume;
                 let mut osc2_volume = self.oscillators[1].volume;
 
-
                 for i in 0..self.notes.len() {
+
+                    // Build oscillator 1 wave.
                     if self.oscillators[0].wave_index >= 0.0 && self.oscillators[0].wave_index < 0.33 {
                         wave1 += create_sine_wave(self.notes[i], osc1_volume, time, self.oscillators[0].detune);
                     } else if self.oscillators[0].wave_index >= 0.33 && self.oscillators[0].wave_index < 0.66 {
@@ -387,6 +372,7 @@ impl Plugin for Crust {
                          wave1 = 0.0;
                     }
 
+                    // Build oscillator 2 wave.
                     if self.oscillators[1].wave_index >= 0.0 && self.oscillators[1].wave_index < 0.33 {
                         wave2 += create_sine_wave(self.notes[i], osc2_volume, time, self.oscillators[1].detune);
                     } else if self.oscillators[1].wave_index >= 0.33 && self.oscillators[1].wave_index < 0.66 {
@@ -400,9 +386,9 @@ impl Plugin for Crust {
                     }
                 } // end of notes loop
 
+                // Apply envelope.
                 if self.envelope.note_on == true {
                     *output_sample = get_amplitude(&self.envelope, self.master_vol) as f32 * (wave1 + wave2 + noise(self.noise));
-                    // sound += get_amplitude(&self.envelope, self.master_vol) as f32 * (wave1 + wave2 + noise(self.noise));
 
                     self.envelope.duration += sample;
                 } else {
@@ -410,15 +396,12 @@ impl Plugin for Crust {
 
                     if release_volume < 0.0 {
                         *output_sample = 0.0;
-                        // sound = 0.0;
                     } else {
                         *output_sample = release_volume * (wave1 + wave2 + noise(self.noise));
-                        // sound += release_volume * (wave1 + wave2 + noise(self.noise));
                     }
 
                     self.envelope.end_time += sample;
                 }
-
                 time += sample;
             } // end of sample loop
         }
