@@ -8,8 +8,8 @@ has only been fully tested on macOS High Sierra using Cubase and Ableton DAWs.
 ## How To Use
 1. Clone or download the repository
 2. Run `Cargo build --release` to build plugin
-3. Mac: run `./osx_vst_bundler.sh cRUST target/release/libcrust.dylib` to create a vst bundle and import into your DAW
-   Linux: navigate to `cRUST/target/release/` and copy `libcrust.so` and import into your DAW
+3. Mac: run `./osx_vst_bundler.sh cRUST target/release/libcrust.dylib` to create a vst bundle to use in your DAW
+   Linux: navigate to `cRUST/target/release/` and copy `libcrust.so` to use in your DAW
 4. Copy .vst into your plugins folder (see your DAW documentation)
 
 ## Status
